@@ -5,84 +5,87 @@
 //  Created by Maximillian Stabe on 25.10.24.
 //
 
-import SwiftUI
 import CoreData
+import CustomCoreData
+import DeviceActivity
+import FamilyControls
+import OSLog
+import SwiftUI
 
 struct ContentView: View {
-    @Environment(\.managedObjectContext) private var viewContext
+  @FetchRequest(
+    sortDescriptors: [NSSortDescriptor(keyPath: \Item.timestamp, ascending: true)],
+    animation: .default
+  )
+  private var items: FetchedResults<Item>
 
-    @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Item.timestamp, ascending: true)],
-        animation: .default)
-    private var items: FetchedResults<Item>
-
-    var body: some View {
-        NavigationView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp!, formatter: itemFormatter)")
-                    } label: {
-                        Text(item.timestamp!, formatter: itemFormatter)
-                    }
-                }
-                .onDelete(perform: deleteItems)
-            }
-            .toolbar {
-#if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-#endif
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-            Text("Select an item")
+  var body: some View {
+    NavigationView {
+      List {
+        itemList
+        monitorButton
+      }
+      .toolbar {
+        ToolbarItem(placement: .navigationBarTrailing) {
+          EditButton()
         }
-    }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(context: viewContext)
-            newItem.timestamp = Date()
-
-            do {
-                try viewContext.save()
-            } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
-            }
+        ToolbarItem {
+          Button(action: addItem) {
+            Label("Add Item", systemImage: "plus")
+          }
         }
+      }
+      .task {
+        try? await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+      }
     }
+  }
 
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            offsets.map { items[$0] }.forEach(viewContext.delete)
-
-            do {
-                try viewContext.save()
-            } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
-            }
-        }
+  private var itemList: some View {
+    ForEach(items) { item in
+      NavigationLink {
+        Text("\(item.name!) created at \(item.timestamp!, formatter: itemFormatter)")
+      } label: {
+        Text(item.timestamp!, formatter: itemFormatter)
+      }
     }
+    .onDelete(perform: deleteItems)
+  }
+
+  private var monitorButton: some View {
+    Button("Start Monitoring") {
+      DeviceActivityCenter().stopMonitoring([.init("Default Activity")])
+
+      let schedule = DeviceActivitySchedule(
+        intervalStart: .init(hour: 0, minute: 0),
+        intervalEnd: .init(hour: 23, minute: 59),
+        repeats: true
+      )
+
+      do {
+        try DeviceActivityCenter().startMonitoring(.init("Default Activity"), during: schedule)
+      } catch {
+        Logger.debug.error("Failed to start monitoring, \(error.localizedDescription)")
+      }
+    }
+  }
+
+  private func addItem() {
+    let _ = Item.createItem(name: UUID().uuidString)
+  }
+
+  private func deleteItems(offsets: IndexSet) {
+    withAnimation {
+      offsets.map { items[$0] }.forEach(CoreDataStack.shared.mainContext.delete)
+
+      try? CoreDataStack.shared.mainContext.save()
+    }
+  }
 }
 
 private let itemFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .short
-    formatter.timeStyle = .medium
-    return formatter
+  let formatter = DateFormatter()
+  formatter.dateStyle = .short
+  formatter.timeStyle = .medium
+  return formatter
 }()
-
-#Preview {
-    ContentView().environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
-}

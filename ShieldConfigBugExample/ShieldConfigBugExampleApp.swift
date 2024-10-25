@@ -5,6 +5,7 @@
 //  Created by Maximillian Stabe on 25.10.24.
 //
 
+import CustomCoreData
 import FamilyControls
 import SwiftUI
 
